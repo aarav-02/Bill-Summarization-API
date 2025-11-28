@@ -33,7 +33,6 @@ class PagewiseLineItem(BaseModel):
 class LLMExtractionOutput(BaseModel):
     """Internal schema to strictly guide the LLM's JSON output."""
     pagewise_line_items: List[PagewiseLineItem]
-    # This field is extracted by the LLM for reference/validation, but the final total is calculated in Python.
     document_final_total: float = Field(..., description="The final, grand total amount written on the entire bill document.")
     
 class TokenUsage(BaseModel):
@@ -76,18 +75,23 @@ def _download_file_to_base64(url: str) -> str:
         return f"data:{content_type};base64,{base64_data}"
         
     except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=400, detail=f"Failed to download document from URL: {e}")
+        # Raise an HTTPException if the download fails (404, 403, network error)
+        error_detail = f"DOCUMENT DOWNLOAD FAILED: URL {url[:50]}... returned error: {e}"
+        print(f"DEBUG ERROR: {error_detail}")
+        # Raising the HTTPException here immediately stops the function and sends the error to the user
+        raise HTTPException(status_code=400, detail=error_detail)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 async def extract_data_with_llm(document_url: str) -> Dict[str, Any]:
     """Calls the Gemini API using the multimodal document and strict JSON schema."""
+    # Check 1: API Key existence
     if not API_KEY:
-        # This will occur if the API_KEY environment variable is not set in Vercel
-        raise HTTPException(status_code=500, detail="API_KEY is missing in Vercel environment variables.")
+        raise HTTPException(status_code=500, detail="API_KEY is missing in Vercel environment variables. Check Project Settings.")
 
-    # 1. Download and encode the file
+    # 1. Download and encode the file (This is where the download fails)
+    # If the download fails, _download_file_to_base64 will raise a 400 HTTPException.
     base64_file_with_mime = _download_file_to_base64(document_url)
     mime_type, base64_data = base64_file_with_mime.split(',', 1)
     mime_type = mime_type.split(':')[1].split(';')[0]
@@ -155,6 +159,7 @@ async def extract_data_with_llm(document_url: str) -> Dict[str, Any]:
                 time.sleep(delay)
                 continue
             
+            # Catch authentication errors (400, 403) and forward them
             error_detail = response.json().get('error', {}).get('message', 'Unknown API Error') if response is not None else str(e)
             raise HTTPException(status_code=response.status_code if response is not None else 500, detail=f"LLM API Error: {error_detail}")
         except (KeyError, IndexError, json.JSONDecodeError, AttributeError) as e:
@@ -216,25 +221,14 @@ async def extract_bill_data(request: ExtractionRequest):
         return response_data
 
     except HTTPException as e:
-        # Handle exceptions thrown during API key check or LLM call
-        return ExtractionResponse(
-            is_success=False,
-            token_usage=TokenUsage(total_tokens=0, input_tokens=0, output_tokens=0),
-            data=ExtractionData(
-                pagewise_line_items=[],
-                final_total_extracted=0.0,
-                total_item_count=0,
-                # Note: Detail is usually logged, but not returned in the final data
-            )
-        )
-    except Exception:
-        # Catch all other unexpected errors
-        return ExtractionResponse(
-            is_success=False,
-            token_usage=TokenUsage(total_tokens=0, input_tokens=0, output_tokens=0),
-            data=ExtractionData(
-                pagewise_line_items=[],
-                final_total_extracted=0.0,
-                total_item_count=0
-            )
+        # This catches all deliberate errors (API Key missing, Download failure, LLM auth errors)
+        raise e
+    
+    except Exception as e:
+        # Catch all other truly unexpected internal server errors
+        print(f"UNCAUGHT INTERNAL SERVER ERROR: {str(e)}")
+        # Raise a 500 error with the type of error for debugging
+        raise HTTPException(
+            status_code=500,
+            detail=f"UNCAUGHT SERVER ERROR: {e.__class__.__name__}. Check Vercel logs."
         )
