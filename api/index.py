@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 # --- CONFIGURATION (Reads from Vercel Environment Variables) ---
 # The API_KEY is read securely from the environment variable named "API_KEY" set in Vercel.
+# If Vercel is having issues, API_KEY will be an empty string, but the check is done later.
 API_KEY = os.environ.get("API_KEY", "") 
 GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={API_KEY}"
@@ -90,8 +91,7 @@ async def extract_data_with_llm(document_url: str) -> Dict[str, Any]:
     if not API_KEY:
         raise HTTPException(status_code=500, detail="API_KEY is missing in Vercel environment variables. Check Project Settings.")
 
-    # 1. Download and encode the file (This is where the download fails)
-    # If the download fails, _download_file_to_base64 will raise a 400 HTTPException.
+    # 1. Download and encode the file (If the download fails, _download_file_to_base64 will raise a 400 HTTPException.)
     base64_file_with_mime = _download_file_to_base64(document_url)
     mime_type, base64_data = base64_file_with_mime.split(',', 1)
     mime_type = mime_type.split(':')[1].split(';')[0]
