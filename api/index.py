@@ -7,8 +7,8 @@ from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
-# --- CONFIGURATION (Reads from Vercel Environment Variables) ---
-# The API_KEY is read securely from the environment variable named "API_KEY" set in Vercel.
+# --- CONFIGURATION (Reads from render Environment Variables) ---
+# The API_KEY is read securely from the environment variable named "API_KEY" set in render.
 API_KEY = os.environ.get("API_KEY", "") 
 GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={API_KEY}"
@@ -228,5 +228,5 @@ async def extract_bill_data(request: ExtractionRequest):
         # Raise a 500 error with the type of error for debugging
         raise HTTPException(
             status_code=500,
-            detail=f"UNCAUGHT SERVER ERROR: {e.__class__.__name__}. Check Vercel logs."
+            detail=f"UNCAUGHT SERVER ERROR: {e.__class__.__name__}. Check Render logs."
         )
